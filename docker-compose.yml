@@ -1,0 +1,88 @@
+version: '3.8'
+
+services:
+  # Federated Learning Server
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    ports:
+      - "8081:8081"
+    environment:
+      - MIN_CLIENTS=2
+      - ROUNDS=5
+      - SECRET_KEY=docker_secret_key
+    networks:
+      - fl-network
+
+  # FL Client 1
+  client_1:
+    build:
+      context: .
+      dockerfile: Dockerfile.client
+    command: [ "client_1" ]
+    depends_on:
+      - server
+    environment:
+      - SECRET_KEY=docker_secret_key
+    networks:
+      - fl-network
+
+  # FL Client 2
+  client_2:
+    build:
+      context: .
+      dockerfile: Dockerfile.client
+    command: [ "client_2" ]
+    depends_on:
+      - server
+    environment:
+      - SECRET_KEY=docker_secret_key
+    networks:
+      - fl-network
+
+  # Redis for Backend
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - app-network
+
+  # Backend API
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./uploads:/app/uploads
+      - ./backend/results.json:/app/results.json
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - CORS_ORIGINS=["http://localhost:3000", "http://127.0.0.1:3000"]
+    depends_on:
+      - redis
+    networks:
+      - app-network
+
+  # Webapp frontend
+  webapp:
+    build:
+      context: .
+      dockerfile: Dockerfile.webapp
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    depends_on:
+      - backend
+    networks:
+      - app-network
+
+networks:
+  fl-network:
+    driver: bridge
+  app-network:
+    driver: bridge

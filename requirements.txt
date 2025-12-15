@@ -1,0 +1,32 @@
+# Core dependencies
+# torch and torchvision installed separately for CPU optimization
+numpy
+Pillow
+tqdm
+matplotlib
+pandas
+scikit-learn
+
+# Computer Vision
+opencv-python-headless
+email-validator
+
+# Federated Learning
+flwr
+PyJWT
+python-dotenv
+
+# Web Framework
+fastapi
+uvicorn
+requests
+python-multipart
+
+# Utilities
+pydantic==1.10.7
+aiofiles
+aiosmtplib
+redis
+jinja2
+slowapi
+sse-starlette

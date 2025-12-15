@@ -1,0 +1,97 @@
+# SYSTEM ARCHITECTURE DIAGRAMS
+
+## 1. Genel Sistem Mimarisi (system_arch.png)
+
+Kullanıcıdan başlayıp, frontend, backend, mail işleme ve analiz akışını detaylı gösterir.
+
+User (Browser)
+    |
+    v
+React/Next.js Frontend
+    |
+    v
+FastAPI Backend
+    |
+    +-------------------+
+    |                   |
+    v                   v
+Mail Sender         IMAP Worker
+    |                   |
+    v                   v
+inbox_cache.jsonl <-----+
+    |
+    v
+Mail Detector (ResNet50 API)
+    |
+    v
+Phishing/Deepfake Analysis
+
+Açıklama:
+- Kullanıcı, React/Next.js arayüzüyle mail gönderir veya gelen kutusunu görüntüler.
+- FastAPI backend, hem mail gönderir (Mail Sender) hem de IMAP ile gerçek mailleri çeker (IMAP Worker).
+- Tüm mailler ve analiz sonuçları `inbox_cache.jsonl` dosyasında tutulur.
+- Maillerdeki görseller, ResNet50 tabanlı dedektör API ile analiz edilir.
+- Analiz sonucu ve skor, frontendde gösterilir.
+
+---
+
+## 2. ResNet50 Deepfake Analiz Akışı (resnet_flow.png)
+
+Bir maildeki görselin deepfake olup olmadığının analiz süreci:
+
+Mail Gönderildi/Alındı
+    |
+    v
+Maildeki Görsel (Attachment)
+    |
+    v
+FastAPI Backend
+    |
+    v
+POST /analyze (Dedektör API)
+    |
+    v
+ResNet50 Model (Dedektör)
+    |
+    v
+Sonuç: { "result": "fake/real", "score": 0.xx }
+    |
+    v
+Mail JSONL'ye Skor ve Sonuç Yazılır
+    |
+    v
+Frontend'de Skor ve Uyarı Gösterilir
+
+Açıklama:
+- Mail gönderildiğinde veya IMAP ile alındığında, görsel backend'e iletilir.
+- Backend, görseli /analyze endpointine gönderir.
+- ResNet50 modeli görseli analiz eder ve sonucu JSON olarak döner.
+- Sonuç (fake/real ve skor) mail objesine eklenir ve frontendde gösterilir.
+
+---
+
+## 3. Gerçek vs Deepfake Mail Karşılaştırma (bar_compare.png)
+
+Gerçek ve deepfake mailin frontendde nasıl karşılaştırıldığını gösterir.
+
++-------------------+-------------------+
+|   Gerçek Mail     |   Deepfake Mail   |
++-------------------+-------------------+
+| - Normal içerik   | - Deepfake içerik |
+| - Düşük skor      | - Yüksek skor     |
+| - Uyarı yok       | - Phishing uyarısı|
++-------------------+-------------------+
+|   [Skor Barları]  |   [Skor Barları]  |
++-------------------+-------------------+
+
+Açıklama:
+- Solda gerçek, sağda deepfake mail örneği.
+- Skor barı ve phishing uyarısı farkı vurgulanır.
+- Kullanıcı, mailin güvenli olup olmadığını kolayca ayırt edebilir.
+
+---
+
+# Notlar
+- Her diyagramı kutular ve oklarla çiz.
+- Renkli kutular ve ikonlar kullanırsan daha profesyonel görünür.
+- diagrams.net, Figma veya benzeri araçlarda bu şemaları kolayca oluşturabilirsin. 

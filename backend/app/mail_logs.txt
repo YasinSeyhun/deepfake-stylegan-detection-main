@@ -1,0 +1,1 @@
+{"target": "seyhunyasin6@gmail.com", "status": "success", "timestamp": "2025-06-16T21:14:17.747820", "template": "deneme", "image_used": "uploaded_20250617001408663893.png"}

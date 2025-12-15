@@ -1,0 +1,17 @@
+[
+  {
+    "label": "fake",
+    "score": 84.56,
+    "image_id": "20250602033144815829.png",
+    "file_name": "fake_01114.png",
+    "date": "2025-06-02T03:31:45.099973",
+    "gradcam": "gradcam_20250602033144815829.png.png"
+  },
+  {
+    "label": "real",
+    "score": 93.68,
+    "image_id": "20250526223820267006.jpg",
+    "file_name": "indir.jpg",
+    "date": "2025-05-26T22:38:20.270511"
+  }
+]

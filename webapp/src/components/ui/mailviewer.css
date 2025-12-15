@@ -1,0 +1,25 @@
+/* MailViewer içindeki img'ler responsive olsun */
+.prose img {
+  max-width: 100% !important;
+  height: auto !important;
+  border-radius: 0.5rem;
+}
+
+/* Custom dark scrollbar sadece MailViewer içindeki scrollable alanlar için */
+.prose-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+  background: transparent;
+}
+.prose-scrollbar::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 8px;
+  border: 2px solid #222;
+}
+.prose-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+.prose-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #333 #18181b;
+} 

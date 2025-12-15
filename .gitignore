@@ -1,0 +1,88 @@
+# Python sanal ortamları
+.venv/
+backend/.venv/
+
+# Node.js bağımlılıkları
+node_modules/
+webapp/node_modules/
+
+# Next.js build çıktısı
+.next/
+webapp/.next/
+
+# Python cache ve derlenmiş dosyalar
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# mypy
+.mypy_cache/
+.dmypy.json
+
+# VS Code
+.vscode/
+
+# Data, models, outputs
+data/
+*.env
+*jsonl
+*.h5
+*.ckpt
+*.pkl
+*.pth
+*.pt
+*.log
+*.csv
+*.npz
+*.npy
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Upload ve geçici dosya klasörleri
+backend/uploads/
+backend/debug_uploads/
+backend/gradcam_uploads/

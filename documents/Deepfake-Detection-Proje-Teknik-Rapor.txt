@@ -1,0 +1,549 @@
+# Deepfake Detection with StyleGAN-generated Faces — Tam Kapsamlı Teknik Dökümantasyon
+
+## 1. Proje Amacı ve Genel Tanım
+Bu proje, gerçek ve sahte (deepfake) yüz görsellerini tespit eden, uçtan uca çalışan bir yapay zeka sistemidir. Amaç, StyleGAN ile üretilmiş sahte yüzler ile gerçek FFHQ yüzlerini ayırt edebilen bir model geliştirmek ve bunu modern bir web arayüzüyle son kullanıcıya sunmaktır. Proje, veri hazırlama, model eğitimi, API geliştirme, frontend entegrasyonu ve sonuç görselleştirme adımlarının tamamını kapsar.
+
+## 2. Kapsamlı Klasör ve Dosya Yapısı
+
+### 2.1. Ana Dizin
+Ana dizin, projenin tüm ana bileşenlerini içerir:
+- backend/
+- webapp/
+- src/
+- data/
+- models/
+- notebooks/
+- tests/
+- requirements.txt
+- package.json
+- README.md
+
+### 2.2. backend/
+- app/main.py: FastAPI uygulamasının ana dosyası. API endpoint'leri, model yükleme, CORS ayarları burada.
+- app/model/detector.py: PyTorch modeli yükler, preprocess ve tahmin fonksiyonlarını içerir.
+- app/model/resnet50_detector_best.pth: Eğitilmiş model ağırlıkları.
+- app/utils/image_utils.py: Görsel kaydetme, dosya adı oluşturma gibi yardımcı fonksiyonlar.
+- results.json: Her analiz edilen görselin sonucu, dosya adı, skor, tarih, image_id ile birlikte burada tutulur.
+- debug_uploads/ ve uploads/: Yüklenen görsellerin saklandığı klasörler.
+- requirements.txt: FastAPI ve PyTorch dahil backend bağımlılıkları.
+
+### 2.3. webapp/
+- app/page.tsx: Ana sayfa. Dosya yükleme, analiz başlatma, sonuç gösterimi.
+- app/results/page.tsx: Sonuçlar ve geçmiş. Tablo, görsel, metrikler, grid/kart yapısı.
+- src/components/ui/: Tüm temel UI bileşenleri (navbar, file-upload, metrik grafik, buton, kart, animasyonlar).
+- src/components/blocks/: Blok seviyesinde UI (ör. özellikler, gridler).
+- src/lib/utils.ts: Frontend yardımcı fonksiyonlar.
+- public/: Statik dosyalar (logo, favicon, vs.).
+- package.json, tsconfig.json, next.config.ts, postcss.config.mjs, eslint.config.mjs: Next.js ve frontend yapılandırma dosyaları.
+
+### 2.4. src/
+- models/detector.py: Model mimarisi ve yükleme.
+- models/train.py: Model eğitimi, validasyon, checkpoint kaydı.
+- inference/gradcam.py: GradCAM ile modelin karar verdiği bölgelerin görselleştirilmesi.
+- utils/: Görsel işleme, veri düzenleme, dosya yapısı düzeltme scriptleri.
+- data/prepare_data.py: Ham veriyi eğitim/validasyon/test setlerine böler.
+- data/generate_fake.py: StyleGAN ile fake veri üretimi.
+- data/legacy.py, torch_utils/, dnnlib/: StyleGAN ve veri işleme için yardımcı kütüphaneler.
+
+### 2.5. data/
+- raw/: Orijinal veri (FFHQ, deepfake, zip ve klasörler).
+- processed/: Eğitim/validasyon/test için işlenmiş veri (train/val/test).
+- samples/: GradCAM örnek görselleri.
+
+### 2.6. models/
+- stylegan2-ffhq-config-f.pkl: StyleGAN2 model ağırlıkları.
+
+### 2.7. notebooks/
+- [Jupyter notebooklar]: Veri analizi, model denemeleri, görselleştirme.
+
+### 2.8. tests/
+- test_inference.py: Modelin inference fonksiyonlarının otomatik testi.
+
+## 3. Veri Akışı ve Pipeline
+
+### 3.1. Veri Hazırlama
+- Ham veri (FFHQ ve deepfake) data/raw/ klasöründe.
+- prepare_data.py ile veri train/val/test olarak ayrılır, data/processed/'a kopyalanır.
+- generate_fake.py ile StyleGAN kullanılarak fake yüzler üretilir.
+- GradCAM ile örnek görseller data/samples/'a kaydedilir.
+
+### 3.2. Model Eğitimi
+- train.py ile ResNet tabanlı model eğitilir.
+- detector.py model mimarisini ve yükleme fonksiyonunu içerir.
+- Ağırlıklar resnet50_detector_best.pth olarak kaydedilir.
+
+### 3.3. Inference ve API
+- main.py FastAPI uygulamasında model belleğe alınır.
+- /analyze endpoint'i ile görsel yüklenir, analiz edilir, sonuç ve görsel kaydedilir.
+- /results endpoint'i ile geçmiş analizler JSON olarak döner.
+- /images/{image_id} ile görsel frontend'e servis edilir.
+
+### 3.4. Frontend
+- file-upload.tsx ile kullanıcıdan görsel alınır.
+- Sonuçlar anında ekranda gösterilir.
+- Geçmiş tablo ve grid/kart yapısında gösterilir.
+- metrics-bar-chart.tsx ile model metrikleri grafikleştirilir.
+
+## 4. Backend (FastAPI) — Derinlemesine
+
+### 4.1. Ana Uygulama (main.py)
+- CORS Middleware: Tüm originlere açık (geliştirme için).
+- Model Yükleme: Uygulama başında PyTorch modeli belleğe alır.
+- /analyze (POST):
+  - Yüklenen görseli uploads/ klasörüne kaydeder.
+  - Görseli preprocess eder (detector.py).
+  - Model ile tahmin yapar.
+  - Sonucu JSON olarak döner ve results.json'a ekler.
+- /results (GET):
+  - results.json'dan geçmiş analizleri okur ve döner.
+- /images/{image_id} (GET):
+  - İlgili görseli döner (analiz edilen görseli frontend'e göstermek için).
+
+#### Koddan Parça:
+```python
+@app.post("/analyze")
+async def analyze(file: UploadFile = File(...)):
+    # 1. Dosyayı kaydet
+    # 2. Preprocess ve model ile tahmin
+    # 3. Sonucu results.json'a ekle
+    # 4. Sonucu JSON olarak döndür
+```
+
+### 4.2. Model Yükleme ve Tahmin (detector.py)
+- Model dosyası: resnet50_detector_best.pth
+- Preprocess: Görseli uygun boyuta getirir, normalize eder.
+- Tahmin: Modelden softmax çıktısı alır, en yüksek olasılığa göre "real" veya "deepfake" döner.
+
+### 4.3. Sonuç Geçmişi (results.json)
+- Her analiz edilen görselin sonucu, dosya adı, skor, tarih, image_id ile birlikte burada tutulur.
+- JSON array formatında, örnek:
+```json
+[
+  {
+    "label": "real",
+    "score": 0.92,
+    "image_id": "abc123",
+    "file_name": "test.jpg",
+    "date": "2024-06-01T12:34:56"
+  }
+]
+```
+
+## 5. Frontend (Next.js) — Derinlemesine
+
+### 5.1. Ana Sayfa (page.tsx)
+- Dosya Yükleme: file-upload.tsx bileşeni ile drag & drop veya tıklayarak dosya seçme.
+- Analiz Başlatma: Dosya seçildiğinde otomatik olarak backend'e gönderilir.
+- Sonuç Gösterimi: Analiz sonucu ekranda kart olarak gösterilir.
+
+### 5.2. Sonuçlar Sayfası (results/page.tsx)
+- Geçmiş Tablosu: Backend'den çekilen tüm analiz geçmişi tablo olarak gösterilir.
+- Son Analiz: Son yüklenen görselin sonucu, modelin kararı, güven skoru, model metrikleri (accuracy, precision, recall, f1) ve görseli.
+- BentoGrid: Sonuçlar ve metrikler modern grid/kart yapısında.
+- MetricsBarChart: Modelin precision, recall, f1 skorlarını grafikle gösterir.
+
+### 5.3. Navbar (mini-navbar.tsx)
+- Responsive: Mobil ve masaüstü için farklı görünümler.
+- Animasyonlu: Hover ve geçiş efektleri.
+- Kullanıcı Avatarı: (Varsa) kullanıcı baş harfi veya görseli.
+
+### 5.4. UI Bileşenleri
+- file-upload.tsx: Dosya yükleme ve analiz başlatma.
+- metrics-bar-chart.tsx: Model metriklerini grafikle gösterme.
+- gradual-spacing.tsx, star-border.tsx, card.tsx, avatar.tsx, button.tsx: Modern ve kullanıcı dostu arayüz için yardımcı bileşenler.
+
+## 6. ML Pipeline ve Veri Süreçleri
+
+### 6.1. Veri Hazırlama
+- src/data/prepare_data.py:
+  - Ham veriyi eğitim/validasyon/test setlerine böler.
+  - Klasör yapısını ve dosya isimlerini düzenler.
+- src/data/generate_fake.py:
+  - StyleGAN ile fake veri üretimi.
+  - Üretilen görselleri uygun klasöre kaydeder.
+- data/raw/:
+  - FFHQ ve deepfake görsellerin orijinal halleri (örn: ffhq-512x512.zip, ffhq-512x512-unzipped/).
+- data/processed/:
+  - Eğitim için işlenmiş veri (train/val/test klasörleri).
+
+### 6.2. Model Eğitimi
+- src/models/train.py:
+  - ResNet tabanlı modelin eğitimi.
+  - Eğitim/validasyon döngüsü, loss/accuracy takibi, model checkpoint kaydı.
+- src/models/detector.py:
+  - Model mimarisi ve yükleme.
+  - PyTorch ile modelin tanımı ve ağırlıkların yüklenmesi.
+- models/:
+  - Eğitilmiş model ağırlıkları (örn: stylegan2-ffhq-config-f.pkl).
+
+### 6.3. Inference ve Görselleştirme
+- src/inference/gradcam.py:
+  - GradCAM ile modelin karar verdiği bölgelerin görselleştirilmesi.
+  - Görselin hangi bölgelerine bakarak karar verdiğini gösterir.
+- data/samples/:
+  - GradCAM örnek görselleri (hem gerçek hem fake için).
+
+## 7. API Dökümantasyonu (Tüm Detaylar)
+
+### Base URL: http://127.0.0.1:8000/
+
+#### POST /analyze
+- Amaç: Yüklenen görseli analiz eder, deepfake olup olmadığını döner.
+- Request: multipart/form-data (file: image)
+- Response:
+```json
+{
+  "label": "real" | "deepfake",
+  "score": 0.92,
+  "image_id": "abc123",
+  "file_name": "test.jpg",
+  "date": "2024-06-01T12:34:56"
+}
+```
+- Hata Kodları: 400 (Geçersiz dosya), 500 (Sunucu hatası)
+- Not: Görsel backend/uploads/ klasörüne kaydedilir.
+
+#### GET /results
+- Amaç: Son analiz edilen görsellerin geçmişini döner.
+- Response: Liste halinde analiz geçmişi.
+
+#### GET /images/{image_id}
+- Amaç: Analiz edilen görseli döner.
+- Response: Görsel dosyası (image/jpeg, image/png)
+
+#### Swagger/OpenAPI
+- http://127.0.0.1:8000/docs adresinde otomatik API dökümantasyonu.
+
+## 8. Koddan Önemli Parçalar ve Açıklamaları
+
+### 8.1. Backend — FastAPI Ana Uygulama (main.py)
+```python
+from fastapi import FastAPI, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware
+from .model.detector import predict_image
+import json
+
+app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.post("/analyze")
+async def analyze(file: UploadFile = File(...)):
+    # Görseli kaydet, modeli çağır, sonucu dön
+    ...
+
+@app.get("/results")
+def get_results():
+    # results.json dosyasından geçmişi oku ve dön
+    ...
+```
+
+### 8.2. Frontend — Sonuçlar Sayfası (results/page.tsx)
+```tsx
+function ResultsHistory() {
+  const [results, setResults] = useState<Result[]>([]);
+  useEffect(() => {
+    fetch("http://127.0.0.1:8000/results")
+      .then((res) => res.json())
+      .then((data) => setResults(data));
+  }, []);
+  // Tablo ile geçmişi göster
+}
+```
+
+### 8.3. Frontend — Dosya Yükleme ve Analiz
+```tsx
+const handleUpload = async (file: File) => {
+  const formData = new FormData();
+  formData.append("file", file);
+  const res = await fetch("http://127.0.0.1:8000/analyze", {
+    method: "POST",
+    body: formData,
+  });
+  const data = await res.json();
+  // Sonuçları göster
+};
+```
+
+## 9. Testler ve Geliştirilebilirlik
+- tests/test_inference.py: Modelin inference fonksiyonlarının otomatik testi.
+- Kod Modülerliği: Hem frontend hem backend'de fonksiyonlar ve bileşenler küçük, bağımsız ve tekrar kullanılabilir şekilde yazılmıştır.
+- Veri Saklama: Sonuçlar JSON dosyasında, büyük ölçek için veritabanı önerilir.
+- Kullanıcı Yönetimi: Şu an temel, ileride kimlik doğrulama eklenebilir.
+- Katkı: Fork'la, yeni özellik ekle, PR gönder.
+
+## 10. Güvenlik, Dağıtım ve Performans
+- CORS: Geliştirme için tüm originlere açık, prod ortamında kısıtlanmalı.
+- Veri Saklama: Sonuçlar JSON dosyasında, büyük ölçek için veritabanı önerilir.
+- Model ve veri dosyaları büyük boyutlu, dağıtımda dikkat edilmeli.
+- Frontend ve backend ayrı sunucularda çalışabilir, reverse proxy (örn. Nginx) ile birleştirilebilir.
+- API rate limiting, authentication, logging gibi ek güvenlik önlemleri eklenebilir.
+
+## 11. Geliştirme ve İleriye Dönük Öneriler
+- Kullanıcı yönetimi ve kimlik doğrulama eklenebilir.
+- Veritabanı entegrasyonu (örn. PostgreSQL, MongoDB) ile geçmiş ve kullanıcı verileri daha güvenli saklanabilir.
+- Model güncellemeleri ve farklı deepfake türleri için yeni modeller entegre edilebilir.
+- API güvenliği için JWT, OAuth gibi yöntemler eklenebilir.
+- Daha fazla metrik ve görselleştirme (örn. ROC, confusion matrix) eklenebilir.
+- Docker ile containerize edilip kolay dağıtım sağlanabilir.
+- CI/CD pipeline ile otomatik test ve deployment.
+
+# Deepfake Detection with StyleGAN-generated Faces — Teknik Diyagramlar ve API Şeması
+
+---
+
+## 1. Model Mimarisi Diyagramı (ResNet Tabanlı Deepfake Dedektörü)
+
+Input Image (3x224x224)
+        │
+        ▼
+[Conv2d + BatchNorm + ReLU]
+        │
+        ▼
+[MaxPool2d]
+        │
+        ▼
+[Residual Block 1] ──► [Residual Block 2] ──► [Residual Block 3] ──► [Residual Block 4]
+        │
+        ▼
+[Global Average Pooling]
+        │
+        ▼
+[Flatten]
+        │
+        ▼
+[Fully Connected Layer]
+        │
+        ▼
+[Softmax]
+        │
+        ▼
+Output: [real, deepfake] (2 sınıf)
+
+Açıklama:
+- Model, klasik ResNet50 mimarisidir.
+- Son katmanda iki çıkış (real, deepfake) için fully connected layer ve softmax kullanılır.
+- Model, transfer learning ile eğitilmiş olabilir (ImageNet ağırlıklarıyla başlatılıp son katmanlar yeniden eğitilmiş).
+
+---
+
+## 2. API Endpointlerinin OpenAPI (Swagger) Şeması
+
+openapi: 3.0.2
+info:
+  title: Deepfake Detection API
+  version: 1.0.0
+paths:
+  /analyze:
+    post:
+      summary: Görseli analiz et
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Analiz sonucu
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  label:
+                    type: string
+                    enum: [real, deepfake]
+                  score:
+                    type: number
+                  image_id:
+                    type: string
+                  file_name:
+                    type: string
+                  date:
+                    type: string
+        '400':
+          description: Geçersiz dosya
+        '500':
+          description: Sunucu hatası
+  /results:
+    get:
+      summary: Sonuç geçmişini getir
+      responses:
+        '200':
+          description: Sonuç listesi
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Result'
+  /images/{image_id}:
+    get:
+      summary: Görseli getir
+      parameters:
+        - name: image_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Görsel dosyası
+          content:
+            image/png: {}
+            image/jpeg: {}
+components:
+  schemas:
+    Result:
+      type: object
+      properties:
+        label:
+          type: string
+        score:
+          type: number
+        image_id:
+          type: string
+        file_name:
+          type: string
+        date:
+          type: string
+
+---
+
+## 3. Kodun İşleyiş Akış Diyagramı
+
+Kullanıcı
+   │
+   ▼
+[Web Arayüzü (Next.js)]
+   │
+   │ 1. Görsel yükle
+   ▼
+[Frontend: file-upload.tsx]
+   │
+   │ 2. Görseli API'ye POST et
+   ▼
+[Backend: FastAPI /analyze]
+   │
+   │ 3. Görseli uploads/ klasörüne kaydet
+   │ 4. Modeli yükle (ilk istek için)
+   │ 5. Preprocess ve tahmin yap
+   │ 6. Sonucu results.json'a ekle
+   │ 7. Sonucu JSON olarak döndür
+   ▼
+[Frontend: Sonuçları al]
+   │
+   │ 8. Sonucu ekranda göster (kart, metrik, görsel)
+   ▼
+[Frontend: results/page.tsx]
+   │
+   │ 9. Geçmişi tablo olarak göster
+   ▼
+[Backend: FastAPI /results]
+   │
+   │ 10. Görseli göstermek için /images/{image_id} çağrısı
+   ▼
+[Backend: FastAPI /images/{image_id}]
+   │
+   ▼
+[Frontend: Görseli ekranda göster]
+
+---
+## mail-Sender işleyiş akış diyagramı(Flowchart)
+
+Kullanıcı
+   |
+   v
+POST /send-phishing  <-----------------------------+
+   |                                               |
+   v                                               |
+SMTP Ayarları ve Görsel Kontrolü                   |
+   |                                               |
+   v                                               |
+Task ID Oluşturma ve Task'ı RAM'de Saklama         |
+   |                                               |
+   v                                               |
+Arka Planda Mail Gönderim Task'ı Başlatılır        |
+   |                                               |
+   v                                               |
+Her Hedef İçin:                                   |
+  - Mail Şablonu Render                           |
+  - EmailMessage Nesnesi Oluştur                  |
+  - Görseli Ek Olarak Ekle                        |
+  - aiosmtplib.send ile Gönder                    |
+  - Sonucu mail_logs.txt'ye Yaz                   |
+  - Progress Güncelle                             |
+   |                                               |
+   v                                               |
+Tüm Mailler Bitince:                              |
+  - Task Status "done"                            |
+   |                                               |
+   v                                               |
+Kullanıcı GET /send-phishing/{task_id} ile        |
+progress'i canlı takip edebilir (SSE) ------------+
+
+[Client] ---> [FastAPI Backend]
+                   |
+                   v
+           [Mail Sender Router]
+                   |
+                   v
+           [asyncio Task Queue]
+                   |
+                   v
+           [aiosmtplib (SMTP)]
+                   |
+                   v
+           [Mail Server (Gmail, Yandex, vs.)]
+                   |
+                   v
+           [Alıcıların Mail Kutusu]
+
+Ek Bileşenler:
+- [mail_logs.txt] (Log dosyası)
+- [tasks dict] (RAM'de progress takibi)
+- [data/...] (Görsel dosyaları)
+
+Alternatif olarak PlantUML ile:
+
+@startuml
+actor Kullanici
+participant "Web Arayüzü (Next.js)" as Frontend
+participant "FastAPI Backend" as Backend
+database "results.json" as ResultsDB
+database "uploads/" as Uploads
+
+Kullanici -> Frontend : Görsel yükler
+Frontend -> Backend : POST /analyze (görsel)
+Backend -> Uploads : Görseli kaydet
+Backend -> Backend : Modeli yükle (ilk istek için)
+Backend -> Backend : Preprocess + Tahmin
+Backend -> ResultsDB : Sonucu ekle
+Backend -> Frontend : JSON ile sonucu döndür
+Frontend -> Backend : GET /results
+Backend -> ResultsDB : Geçmişi oku
+Backend -> Frontend : Geçmişi JSON ile döndür
+Frontend -> Backend : GET /images/{image_id}
+Backend -> Uploads : Görseli oku
+Backend -> Frontend : Görseli döndür
+@enduml
+
+---
+
+# Ekstra Açıklamalar
+
+- Model: ResNet50, son katmanı 2 çıkışlı (real, deepfake), softmax ile sınıflandırma.
+- API: Tüm endpointler FastAPI ile tanımlı, otomatik OpenAPI/Swagger desteği.
+- Frontend: Next.js ile SSR/CSR, shadcn/ui ile modern UI, dosya yükleme ve sonuç gösterimi.
+- Veri: Tüm görseller ve sonuçlar dosya tabanlı saklanıyor, büyük ölçek için veritabanı önerilir.
+
+---

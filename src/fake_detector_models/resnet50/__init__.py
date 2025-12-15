@@ -1,0 +1,1 @@
+from .detector import get_resnet50_detector, load_trained_detector, LABELS 
