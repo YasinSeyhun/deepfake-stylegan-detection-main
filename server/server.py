@@ -13,9 +13,13 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
 
-from src.common.model import FederatedResNetDetector
+from src.common.model import FederatedDeepfakeDetector
 from src.common.config import FederatedConfig
 from src.common.security import SecurityManager
+
+# Initialize model
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+global_model = FederatedDeepfakeDetector().to(device)
 
 # Setup logging
 logging.basicConfig(

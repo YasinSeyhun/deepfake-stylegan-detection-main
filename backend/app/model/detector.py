@@ -8,19 +8,50 @@ from PIL import Image
 # Label mapping for inference
 LABELS = {0: 'fake', 1: 'real'}
 
-def get_resnet50_detector(pretrained=True):
-    model = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1 if pretrained else None)
-    num_ftrs = model.fc.in_features
-    model.fc = nn.Linear(num_ftrs, 2)  # 2 sınıf: real/fake
+def get_efficientnet_detector(pretrained=True):
+    # This logic matches src/common/model.py
+    try:
+        weights = models.EfficientNet_B4_Weights.IMAGENET1K_V1
+        model = models.efficientnet_b4(weights=weights if pretrained else None)
+    except (AttributeError, NameError):
+        model = models.efficientnet_b4(pretrained=pretrained)
+        
+    in_features = model.classifier[1].in_features
+    model.classifier[1] = nn.Linear(in_features, 2)
     return model
 
 def load_trained_detector(weights_path, device='cpu'):
-    model = get_resnet50_detector(pretrained=False)
+    model = get_efficientnet_detector(pretrained=False)
+    # Check if file exists, if not warn
+    if not os.path.exists(weights_path):
+        print(f"Warning: Model file {weights_path} not found. Using random weights.")
+        model.to(device)
+        return model
+
     checkpoint = torch.load(weights_path, map_location=device)
+    
+    # Handle both full state dict and direct model
     if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
-        model.load_state_dict(checkpoint['model_state_dict'])
+        state_dict = checkpoint['model_state_dict']
     else:
-        model.load_state_dict(checkpoint)
+        state_dict = checkpoint
+        
+    # The server might save 'base_model.' prefix if using wrapper, or not.
+    # We need to handle key matching.
+    # Our backend 'model' is the pure EfficientNet, but 'FederatedDeepfakeDetector' has 'base_model' attribute.
+    # If the saved weights have 'base_model.' prefix, remove it.
+    new_state_dict = {}
+    for k, v in state_dict.items():
+        if k.startswith('base_model.'):
+            new_state_dict[k.replace('base_model.', '')] = v
+        else:
+            new_state_dict[k] = v
+            
+    try:
+        model.load_state_dict(new_state_dict, strict=False)
+    except Exception as e:
+        print(f"Error loading state dict: {e}")
+        
     model.eval()
     model.to(device)
     return model
@@ -65,8 +96,9 @@ class GradCAM:
         return cam
 
 def get_last_conv_layer(model):
-    # For ResNet50, last conv layer is model.layer4[2].conv3
-    return model.layer4[2].conv3
+    # For EfficientNet-B4, the last convolutional layer is in 'features' block
+    # Specifically usually the last module in features
+    return model.features[-1]
 
 def overlay_cam_on_image(img: Image.Image, cam: np.ndarray, alpha=0.4):
     img = np.array(img.resize((224, 224)))

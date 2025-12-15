@@ -47,8 +47,8 @@ except Exception as e:
     print(f"Warning: Could not load model from {settings.MODEL_PATH}. Error: {e}")
     # Initialize a dummy model or fail? For now, let's keep it running but warn.
     # In a real fix, we might want to download weights or use a blank model.
-    from app.model.detector import get_resnet50_detector
-    model = get_resnet50_detector(pretrained=True)
+    from app.model.detector import get_efficientnet_detector
+    model = get_efficientnet_detector(pretrained=True)
     model.to(device)
     model.eval()
 

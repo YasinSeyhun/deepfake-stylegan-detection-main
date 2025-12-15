@@ -4,7 +4,7 @@ from torchvision import models
 import numpy as np
 from typing import List
 
-class FederatedResNetDetector(nn.Module):
+class FederatedDeepfakeDetector(nn.Module):
     def __init__(self, model_name: str = "efficientnet_b4", num_classes: int = 2):
         super().__init__()
         

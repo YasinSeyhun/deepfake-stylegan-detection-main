@@ -13,8 +13,8 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
 
-from src.common.model import FederatedResNetDetector
-from src.common.config import FederatedConfig
+from src.common.model import FederatedDeepfakeDetector
+from src.common.config import FLParameters, get_model_parameters, set_model_parameters
 from src.common.security import SecurityManager
 from client_machine.data_manager import DataManager
 
@@ -26,8 +26,9 @@ class DeepFakeClient(fl.client.NumPyClient):
         self.config = FederatedConfig()
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         logger.info(f"Client {client_id} initializing on {self.device}...")
-        
-        self.model = FederatedResNetDetector().to(self.device)
+        # Initialize model
+        self.model = FederatedDeepfakeDetector().to(self.device).eval()
+        self.criterion = nn.CrossEntropyLoss()
         self.data_manager = DataManager(batch_size=self.config.BATCH_SIZE)
         self.train_loader, self.val_loader = self.data_manager.load_data()
         
