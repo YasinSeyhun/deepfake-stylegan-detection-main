@@ -24,3 +24,12 @@ class FederatedConfig:
     
     # Security configuration
     TOKEN_EXPIRY: int = 3600  # 1 hour in seconds
+    
+    # Differential Privacy (DP)
+    USE_DIFFERENTIAL_PRIVACY: bool = True
+    DP_MAX_NORM: float = 1.0
+    DP_NOISE_MULTIPLIER: float = 0.1
+    
+    # Adversarial Training (FGSM)
+    ADVERSARIAL_TRAINING: bool = True
+    FGSM_EPSILON: float = 0.01

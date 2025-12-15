@@ -14,8 +14,9 @@ parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
 
 from src.common.model import FederatedDeepfakeDetector
-from src.common.config import FLParameters, get_model_parameters, set_model_parameters
+from src.common.config import FederatedConfig
 from src.common.security import SecurityManager
+from src.common.training_utils import apply_dp_privacy, generate_adversarial_example
 from client_machine.data_manager import DataManager
 
 logging.basicConfig(level=logging.INFO)
@@ -57,10 +58,41 @@ class DeepFakeClient(fl.client.NumPyClient):
             total_loss = 0
             for images, labels in self.train_loader:
                 images, labels = images.to(self.device), labels.to(self.device)
-                optimizer.zero_grad()
-                outputs = self.model(images)
-                loss = criterion(outputs, labels)
+                
+                # --- Adversarial Training (FGSM) ---
+                if self.config.ADVERSARIAL_TRAINING:
+                    # Generate adversarial examples
+                    adv_images = generate_adversarial_example(
+                        self.model, images, labels, criterion, self.config.FGSM_EPSILON
+                    )
+                    # Concat original and adversarial images for robust training
+                    # Or train on them separately. Concatenating doubled the batch size.
+                    # Let's do a combined forward pass if memory allows, or two steps.
+                    # Combining is cleaner for BatchNorm.
+                    combined_images = torch.cat([images, adv_images], dim=0)
+                    combined_labels = torch.cat([labels, labels], dim=0)
+                    
+                    optimizer.zero_grad()
+                    outputs = self.model(combined_images)
+                    loss = criterion(outputs, combined_labels)
+                else:
+                    optimizer.zero_grad()
+                    outputs = self.model(images)
+                    loss = criterion(outputs, labels)
+                # -----------------------------------
+
                 loss.backward()
+                
+                # --- Differential Privacy ---
+                if self.config.USE_DIFFERENTIAL_PRIVACY:
+                    apply_dp_privacy(
+                        self.model, 
+                        max_norm=self.config.DP_MAX_NORM, 
+                        noise_multiplier=self.config.DP_NOISE_MULTIPLIER,
+                        device=self.device
+                    )
+                # ----------------------------
+
                 optimizer.step()
                 total_loss += loss.item()
             logger.info(f"Epoch {epoch+1} loss: {total_loss}")
