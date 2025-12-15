@@ -5,20 +5,27 @@ import numpy as np
 from typing import List
 
 class FederatedResNetDetector(nn.Module):
-    def __init__(self, model_name: str = "resnet50", num_classes: int = 2):
+    def __init__(self, model_name: str = "efficientnet_b4", num_classes: int = 2):
         super().__init__()
-        # Use newer weights API if available, else pretrained=True
+        
+        # Load EfficientNet-B4 with pretrained weights
         try:
-            # Try to use the new weights API if possible
-            weights = models.ResNet50_Weights.IMAGENET1K_V1
-            self.base_model = models.resnet50(weights=weights)
+            weights = models.EfficientNet_B4_Weights.IMAGENET1K_V1
+            self.base_model = models.efficientnet_b4(weights=weights)
         except (AttributeError, NameError):
-             # Fallback for older torchvision versions
-            self.base_model = models.resnet50(pretrained=True)
+            # Fallback for older torchvision versions
+            self.base_model = models.efficientnet_b4(pretrained=True)
             
-        # Modify the final layer for binary classification
-        in_features = self.base_model.fc.in_features
-        self.base_model.fc = nn.Linear(in_features, num_classes)
+        # EfficientNet has a 'classifier' block, not 'fc'.
+        # The last layer in the classifier is usually the linear layer.
+        # Structure: classifier = Sequential(Dropout, Linear)
+        
+        # Get in_features from the existing last linear layer
+        # EfficientNet classifer structure: [Dropout, Linear]
+        in_features = self.base_model.classifier[1].in_features
+        
+        # Replace the classifier head for binary classification
+        self.base_model.classifier[1] = nn.Linear(in_features, num_classes)
         
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.base_model(x)

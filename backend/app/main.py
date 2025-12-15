@@ -6,6 +6,10 @@ import torch
 import shutil
 import json
 from datetime import datetime
+import io
+import os
+import cv2
+import numpy as np
 from PIL import Image
 from io import BytesIO
 import os
@@ -63,14 +67,44 @@ async def analyze_image(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="Only image files are allowed.")
     
     try:
+    # Convert to PIL Image
+    try:
         contents = await file.read()
         image = Image.open(BytesIO(contents)).convert("RGB")
     except Exception as e:
         print(f"Analyze Error: {e}")
         raise HTTPException(status_code=400, detail="Could not process image.")
-        
-    # Preprocess
-    input_tensor = preprocess(image).unsqueeze(0).to(device)
+    
+    # --- Face Guard: Check if a face is present ---
+    # Convert PIL to OpenCV format (numpy array)
+    open_cv_image = np.array(image)
+    # Convert RGB to BGR
+    open_cv_image = open_cv_image[:, :, ::-1].copy()
+    
+    # Load Haar Cascade
+    face_cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+    face_cascade = cv2.CascadeClassifier(face_cascade_path)
+    
+    gray = cv2.cvtColor(open_cv_image, cv2.COLOR_BGR2GRAY)
+    faces = face_cascade.detectMultiScale(gray, 1.1, 4)
+    
+    if len(faces) == 0:
+        raise HTTPException(
+            status_code=400, 
+            detail="No face detected in the image! Please upload a clear photo of a face for deepfake analysis."
+        )
+    # -----------------------------------------------
+
+    # Preprocess for EfficientNet-B4 (Requires 380x380)
+    # Re-define preprocess locally or update global if possible but modifying global here
+    # to ensure it uses the correct size for this request
+    custom_preprocess = transforms.Compose([
+        transforms.Resize((380, 380)),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]) # ImageNet Standards
+    ])
+    
+    input_tensor = custom_preprocess(image).unsqueeze(0).to(device)
     
     # Inference
     with torch.no_grad():
