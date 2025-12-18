@@ -30,3 +30,8 @@ redis
 jinja2
 slowapi
 sse-starlette
+
+# Agent Dependencies
+pyautogui
+mss
+keyboard

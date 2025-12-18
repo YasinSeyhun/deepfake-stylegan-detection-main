@@ -1,4 +1,5 @@
 import torch
+import os
 import torch.nn as nn
 from torchvision import models
 import numpy as np
@@ -111,5 +112,5 @@ def overlay_cam_on_image(img: Image.Image, cam: np.ndarray, alpha=0.4):
     return overlayed
 
 if __name__ == "__main__":
-    model = get_resnet50_detector()
+    model = get_efficientnet_detector()
     print(model) 

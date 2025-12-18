@@ -8,6 +8,9 @@ services:
       dockerfile: Dockerfile.server
     ports:
       - "8081:8081"
+    volumes:
+      - ./src:/app/src
+      - ./server:/app/server
     environment:
       - MIN_CLIENTS=2
       - ROUNDS=5
@@ -23,6 +26,9 @@ services:
     command: [ "client_1" ]
     depends_on:
       - server
+    volumes:
+      - ./src:/app/src
+      - ./client_machine:/app/client_machine
     environment:
       - SECRET_KEY=docker_secret_key
     networks:
@@ -36,6 +42,9 @@ services:
     command: [ "client_2" ]
     depends_on:
       - server
+    volumes:
+      - ./src:/app/src
+      - ./client_machine:/app/client_machine
     environment:
       - SECRET_KEY=docker_secret_key
     networks:
@@ -59,6 +68,8 @@ services:
     volumes:
       - ./uploads:/app/uploads
       - ./backend/results.json:/app/results.json
+      - ./src:/app/src
+      - ./backend/app:/app/backend/app
     environment:
       - REDIS_URL=redis://redis:6379/0
       - CORS_ORIGINS=["http://localhost:3000", "http://127.0.0.1:3000"]

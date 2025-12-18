@@ -37,7 +37,7 @@ class DeepFakeServer(fl.server.strategy.FedAvg):
         super().__init__(*args, **kwargs)
         self.config = FederatedConfig()
         self.security_manager = SecurityManager(os.getenv('SECRET_KEY', 'default_secret_key'))
-        self.global_model = FederatedResNetDetector()
+        self.global_model = FederatedDeepfakeDetector()
         self.client_weights: Dict[str, List[np.ndarray]] = {}
         self.client_metrics: Dict[str, Dict[str, float]] = {}
         
@@ -74,7 +74,7 @@ class DeepFakeServer(fl.server.strategy.FedAvg):
         # Update global model
         self.global_model.set_parameters(weights_aggregated)
         
-        return fl.common.ndarrays_to_parameters(weights_aggregated)
+        return fl.common.ndarrays_to_parameters(weights_aggregated), {}
         
     def aggregate_evaluate(
         self,
@@ -101,7 +101,7 @@ class DeepFakeServer(fl.server.strategy.FedAvg):
         global_metrics = self.calculate_global_metrics(valid_metrics)
         logger.info(f"Round {rnd} - Global metrics: {global_metrics}")
         
-        return global_metrics.get('accuracy', 0.0)
+        return global_metrics.get('loss', 0.0), global_metrics
         
     def calculate_global_metrics(self, client_metrics: List[Dict[str, float]]) -> Dict[str, float]:
         """Calculate global metrics from client metrics."""
@@ -137,7 +137,7 @@ def start_server():
         min_fit_clients=int(os.getenv('MIN_CLIENTS', 2)),
         min_evaluate_clients=int(os.getenv('MIN_CLIENTS', 2)),
         initial_parameters=fl.common.ndarrays_to_parameters(
-            FederatedResNetDetector().get_parameters()
+            FederatedDeepfakeDetector().get_parameters()
         ),
     )
     
