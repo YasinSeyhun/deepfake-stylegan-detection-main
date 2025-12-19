@@ -3,176 +3,196 @@ import time
 import cv2
 import numpy as np
 import requests
-import pyautogui
 import threading
 import tkinter as tk
+from tkinter import ttk, filedialog, messagebox
 from collections import deque
-from PIL import Image
+from PIL import Image, ImageTk
+import mss
 
-# Configuration
+# --- Configuration ---
 SERVER_URL = "http://localhost:8000/analyze"
 CONFIDENCE_THRESHOLD = 0.90
-TEMPORAL_BUFFER_SIZE = 5  # Analyze last N frames for consistency
-SCAN_INTERVAL = 0.5       # Seconds between screen scans in Sentry Mode
+TEMPORAL_BUFFER_SIZE = 5  # Analyze last N frames
+SCAN_INTERVAL = 0.5       # Seconds between screen scans
 
-class DeepfakeSentinel:
-    def __init__(self):
-        self.running = False
-        self.root = None
-        self.alert_label = None
-        self.history = deque(maxlen=TEMPORAL_BUFFER_SIZE)
-        self.overlay_active = False
+# --- Theme Configuration ---
+COLOR_BG = "#1e1e1e"
+COLOR_FG = "#ffffff"
+COLOR_ACCENT = "#007acc"
+COLOR_DANGER = "#e51400"
+COLOR_SUCCESS = "#60a917"
+FONT_MAIN = ("Segoe UI", 10)
+FONT_HEADER = ("Segoe UI", 16, "bold")
 
-    def create_hud(self):
-        """Creates a transparent overlay for alerts (The HUD)."""
-        self.root = tk.Tk()
-        self.root.title("Deepfake Sentinel HUD")
-        
-        # Make it full screen and transparent
-        width = self.root.winfo_screenwidth()
-        height = self.root.winfo_screenheight()
-        self.root.geometry(f"{width}x{height}+0+0")
-        self.root.overrideredirect(True) # Remove window chrome
+class ToastNotification:
+    """A small, non-intrusive popup notification."""
+    def __init__(self, title, message, color):
+        self.root = tk.Toplevel()
+        self.root.overrideredirect(True)
         self.root.attributes("-topmost", True)
-        self.root.attributes("-alpha", 0.0) # Start invisible
+        self.root.attributes("-alpha", 0.95)
+        self.root.config(bg=color)
         
-        # In Windows, making it click-through requires platform specific calls, 
-        # for MVP we just keep it simple or invisible when safe.
-        # Ideally, we just show a border.
+        # Geometry: Bottom Right Corner
+        screen_w = self.root.winfo_screenwidth()
+        screen_h = self.root.winfo_screenheight()
+        w, h = 300, 80
+        x = screen_w - w - 20
+        y = screen_h - h - 60
+        self.root.geometry(f"{w}x{h}+{x}+{y}")
         
-        self.canvas = tk.Canvas(self.root, width=width, height=height, highlightthickness=0)
-        self.canvas.pack()
+        # Content
+        tk.Label(self.root, text=title, font=("Segoe UI", 12, "bold"), bg=color, fg="white", anchor="w").pack(fill="x", padx=10, pady=(10, 2))
+        tk.Label(self.root, text=message, font=("Segoe UI", 10), bg=color, fg="white", anchor="w").pack(fill="x", padx=10)
         
-        # Create a red border rectangle (hidden initially)
-        self.border = self.canvas.create_rectangle(0, 0, width, height, outline="red", width=10, state='hidden')
-        self.text = self.canvas.create_text(width//2, 50, text="⚠️ DEEPFAKE DETECTED ⚠️", fill="red", font=("Courier", 30, "bold"), state='hidden')
+        # Auto close
+        self.root.after(4000, self.destroy)
         
-        # Transparent background for canvas
-        self.root.config(bg='white')
-        self.root.attributes("-transparentcolor", "white")
-        
-        self.root.mainloop()
+        # Close on click
+        self.root.bind("<Button-1>", lambda e: self.destroy())
 
-    def show_alert(self):
-        if not self.root: return
-        self.canvas.itemconfig(self.border, state='normal')
-        self.canvas.itemconfig(self.text, state='normal')
-        self.root.attributes("-alpha", 1.0)
-        self.overlay_active = True
-
-    def hide_alert(self):
-        if not self.root: return
-        self.canvas.itemconfig(self.border, state='hidden')
-        self.canvas.itemconfig(self.text, state='hidden')
-        self.root.attributes("-alpha", 0.0)
-        self.overlay_active = False
-
-    def analyze_frame(self, frame_cv2):
-        """Sends a frame to the backend for analysis."""
+    def destroy(self):
         try:
-            # Encode frame to JPEG
-            _, img_encoded = cv2.imencode('.jpg', frame_cv2)
-            files = {'file': ('frame.jpg', img_encoded.tobytes(), 'image/jpeg')}
-            
-            start = time.time()
-            response = requests.post(SERVER_URL, files=files, timeout=2)
-            # print(f"Latency: {time.time() - start:.2f}s")
-            
-            if response.status_code == 200:
-                result = response.json()
-                # Server returns: {"result": "fake", "score": 99.5, ...}
-                label = result.get("result", "unknown").lower()
-                score = result.get("score", 0.0)
-                confidence = score / 100.0
-                
-                return {"label": label, "confidence": confidence}
-            elif response.status_code == 400:
-                # Likely "No face detected"
-                return {"label": "no_face", "confidence": 0.0}
-        except Exception as e:
-            print(f"Connection Error: {e}")
-        return None
+            self.root.destroy()
+        except:
+            pass
 
-    def update_temporal_logic(self, result):
-        if not result: return
+class DeepfakeGuardianApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Deepfake Guardian")
+        self.root.geometry("500x400")
+        self.root.configure(bg=COLOR_BG)
+        self.root.resizable(False, False)
         
-        label = result.get("label", "").lower()
-        conf = result.get("confidence", 0.0)
+        self.server_url = tk.StringVar(value=SERVER_URL)
+        self.is_guard_active = False
+        self.history = deque(maxlen=TEMPORAL_BUFFER_SIZE)
         
+        self.setup_ui()
+        
+    def setup_ui(self):
+        style = ttk.Style()
+        style.theme_use('clam')
+        style.configure("TFrame", background=COLOR_BG)
+        style.configure("TLabel", background=COLOR_BG, foreground=COLOR_FG, font=FONT_MAIN)
+        style.configure("TButton", font=FONT_MAIN, padding=6)
+        style.configure("Header.TLabel", font=FONT_HEADER, background=COLOR_BG, foreground=COLOR_ACCENT)
+        style.configure("Status.TLabel", background=COLOR_BG, foreground="#888888", font=("Segoe UI", 9))
+
+        # --- Header ---
+        header_frame = ttk.Frame(self.root)
+        header_frame.pack(fill="x", padx=20, pady=20)
+        
+        icon_label = ttk.Label(header_frame, text="🛡️", font=("Segoe UI", 30))
+        icon_label.pack(side="left", padx=(0, 10))
+        
+        title_label = ttk.Label(header_frame, text="Deepfake Guardian", style="Header.TLabel")
+        title_label.pack(side="left", fill="y")
+        
+        # --- Main Controls ---
+        content_frame = ttk.Frame(self.root)
+        content_frame.pack(fill="both", expand=True, padx=20)
+        
+        # Live Guard Section
+        self.guard_btn = tk.Button(content_frame, text="🛡️ START LIVE GUARD", font=("Segoe UI", 11, "bold"), 
+                                   bg=COLOR_ACCENT, fg="white", activebackground="#005f9e", activeforeground="white",
+                                   command=self.toggle_guard, relief="flat", padx=20, pady=10)
+        self.guard_btn.pack(fill="x", pady=(10, 5))
+        
+        self.status_label = ttk.Label(content_frame, text="System: IDLE", style="Status.TLabel")
+        self.status_label.pack(anchor="w", padx=5)
+        
+        ttk.Separator(content_frame, orient="horizontal").pack(fill="x", pady=20)
+        
+        # File Scan Section
+        scan_label = ttk.Label(content_frame, text="Analyze Recorded Meetings (MP4)", font=("Segoe UI", 11, "bold"))
+        scan_label.pack(anchor="w", pady=(0, 10))
+        
+        scan_btn = tk.Button(content_frame, text="📂 SCAN VIDEO FILE", font=("Segoe UI", 10),
+                             bg="#333333", fg="white", activebackground="#444444", activeforeground="white",
+                             command=self.scan_video_file, relief="flat", padx=20, pady=8)
+        scan_btn.pack(fill="x")
+
+        # Settings Link
+        settings_frame = ttk.Frame(self.root)
+        settings_frame.pack(side="bottom", fill="x", padx=20, pady=10)
+        
+        tk.Label(settings_frame, text=f"Server: {self.server_url.get()}", bg=COLOR_BG, fg="#666666", font=("Segoe UI", 8)).pack(side="left")
+
+    def toggle_guard(self):
+        if self.is_guard_active:
+            # STOP
+            self.is_guard_active = False
+            self.guard_btn.config(text="🛡️ START LIVE GUARD", bg=COLOR_ACCENT)
+            self.status_label.config(text="System: IDLE", foreground="#888888")
+        else:
+            # START
+            self.is_guard_active = True
+            self.guard_btn.config(text="🛑 STOP LIVE GUARD", bg=COLOR_DANGER)
+            self.status_label.config(text="System: MONITORING (Zoom/Teams/Screen)", foreground=COLOR_SUCCESS)
+            
+            # Start Monitor Thread
+            t = threading.Thread(target=self.guard_loop, daemon=True)
+            t.start()
+            
+    def guard_loop(self):
+        with mss.mss() as sct:
+            monitor = sct.monitors[1]
+            while self.is_guard_active:
+                try:
+                    # Capture
+                    screenshot = sct.grab(monitor)
+                    img = Image.frombytes("RGB", screenshot.size, screenshot.bgra, "raw", "BGRX")
+                    frame = np.array(img)
+                    frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                    
+                    # Analyze
+                    result = self.analyze_frame(frame)
+                    
+                    # Alert Logic
+                    if result:
+                        self.process_live_result(result)
+                        
+                    time.sleep(SCAN_INTERVAL)
+                except Exception as e:
+                    print(f"Error: {e}")
+                    time.sleep(1)
+
+    def process_live_result(self, result):
+        label = result.get("label", "unknown")
+        # Temporal smoothing
         if label == "fake":
             self.history.append(1)
         elif label == "real":
             self.history.append(0)
-        else:
-            # No face or error, treat as neutral (or 0)
-            self.history.append(0)
-
-        # Trigger if majority of buffer is FAKE
-        if sum(self.history) >= (self.history.maxlen * 0.6): # 60% agreement
-             if not self.overlay_active:
-                 print(">>> ALARM: Deepfake Activity Detected! <<<")
-                 # We need to signal the UI thread. simpler to just print for this console version
-                 # In full version, use queue to talk to Tkinter
-                 
-    def start_sentry_mode(self):
-        """Monitors the screen continuously."""
-        print("🛡️ Sentry Mode ACTIVATED. Monitoring screen...")
-        print("Press Ctrl+C to stop.")
-        
-        # Start HUD in separate thread (Tkinter needs main thread usually, but let's try)
-        # Actually Tkinter MUST be main thread. So capture loop goes to thread.
-        t = threading.Thread(target=self._capture_loop)
-        t.daemon = True
-        t.start()
-        
-        self.create_hud()
-
-    def _capture_loop(self):
-        import mss
-        with mss.mss() as sct:
-            monitor = sct.monitors[1] # Primary monitor
             
-            while True:
-                # Capture Screen
-                screenshot = sct.grab(monitor)
-                img = Image.frombytes("RGB", screenshot.size, screenshot.bgra, "raw", "BGRX")
-                frame = np.array(img)
-                # Convert RGB to BGR for OpenCV
-                frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-                
-                # Analyze
-                result = self.analyze_frame(frame)
-                
-                # Update Logic
-                if result:
-                    label = result.get("label", "unknown")
-                    conf = result.get("confidence", 0.0)
-                    print(f"Scanner: {label} ({conf:.2f})", end="\r")
-                    
-                    self.update_temporal_logic(result)
-                    
-                    # Simple direct UI update (unsafe in complex apps but might work for simple flag)
-                    # Ideally use queue. For MVP:
-                    is_danger = (sum(self.history) >= (self.history.maxlen * 0.6))
-                    if is_danger:
-                         self.root.after(0, self.show_alert)
-                    else:
-                         self.root.after(0, self.hide_alert)
-                
-                time.sleep(SCAN_INTERVAL)
+        # Check alarm
+        if sum(self.history) >= (self.history.maxlen * 0.8): # 80% confidence
+             # Only show toast if not already showing recently? 
+             # For now, simplistic check
+             self.root.after(0, lambda: ToastNotification(
+                 "⚠️ DEEPFAKE DETECTED", 
+                 "Potential manipulation detected on screen!", 
+                 COLOR_DANGER
+             ))
+             self.history.clear() # Reset buffer to avoid spam
 
-    def scan_file(self, filepath):
-        """Scans a video file frame by frame."""
-        if not os.path.exists(filepath):
-            print("File not found.")
+    def scan_video_file(self):
+        filepath = filedialog.askopenfilename(filetypes=[("Video Files", "*.mp4 *.avi *.mov")])
+        if not filepath:
             return
-
+            
+        # run in thread
+        threading.Thread(target=self._run_scan, args=(filepath,), daemon=True).start()
+        
+    def _run_scan(self, filepath):
+        self.root.after(0, lambda: messagebox.showinfo("Scanning", "Video analysis started. Check console for details."))
+        
         cap = cv2.VideoCapture(filepath)
         fps = cap.get(cv2.CAP_PROP_FPS)
         frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        duration = frame_count / fps
-        
-        print(f"Scanning video: {filepath} ({duration:.1f}s)")
         
         fake_frames = 0
         analyzed_frames = 0
@@ -181,43 +201,41 @@ class DeepfakeSentinel:
             ret, frame = cap.read()
             if not ret: break
             
-            # Extract 1 frame per second to save time
-            current_frame_id = cap.get(cv2.CAP_PROP_POS_FRAMES)
-            if current_frame_id % int(fps) != 0:
-                continue
-                
+            # Sample 1 fps
+            current_frame = cap.get(cv2.CAP_PROP_POS_FRAMES)
+            if current_frame % int(fps) != 0: continue
+            
             result = self.analyze_frame(frame)
             analyzed_frames += 1
             
             if result and result.get("label") == "fake":
                 fake_frames += 1
-                timestamp = current_frame_id / fps
-                print(f"⚠️ Fake detected at {timestamp:.1f}s (Conf: {result['confidence']:.2f})")
-        
+                
         cap.release()
         
-        if analyzed_frames > 0:
-            ratio = fake_frames / analyzed_frames
-            print(f"\n--- REPORT ---")
-            print(f"Analyzed Frames: {analyzed_frames}")
-            print(f"Fake Frames: {fake_frames}")
-            print(f"Probability: {ratio:.1%}")
-            if ratio > 0.3:
-                print("CONCLUSION: 🚨 FAKE VIDEO DETECTED 🚨")
-            else:
-                print("CONCLUSION: ✅ Video appears clean")
+        ratio = fake_frames / analyzed_frames if analyzed_frames > 0 else 0
+        is_fake = ratio > 0.3
+        
+        msg = f"Analysis Complete.\nScore: {ratio:.1%} Probability of Deepfake."
+        title = "🚨 DETECTED!" if is_fake else "✅ CLEAN"
+        icon = "warning" if is_fake else "info"
+        
+        self.root.after(0, lambda: messagebox.showinfo(title, msg, icon=icon))
+
+    def analyze_frame(self, frame_cv2):
+        try:
+            _, img_encoded = cv2.imencode('.jpg', frame_cv2)
+            files = {'file': ('frame.jpg', img_encoded.tobytes(), 'image/jpeg')}
+            response = requests.post(self.server_url.get(), files=files, timeout=2)
+            
+            if response.status_code == 200:
+                data = response.json()
+                return {"label": data.get("result"), "confidence": data.get("score", 0)/100}
+        except:
+            pass
+        return None
 
 if __name__ == "__main__":
-    import sys
-    sentinel = DeepfakeSentinel()
-    
-    if len(sys.argv) > 1:
-        cmd = sys.argv[1]
-        if cmd == "sentry":
-            sentinel.start_sentry_mode()
-        elif cmd == "scan" and len(sys.argv) > 2:
-            sentinel.scan_file(sys.argv[2])
-        else:
-            print("Usage: python agent.py [sentry | scan <file.mp4>]")
-    else:
-        print("Usage: python agent.py [sentry | scan <file.mp4>]")
+    root = tk.Tk()
+    app = DeepfakeGuardianApp(root)
+    root.mainloop()

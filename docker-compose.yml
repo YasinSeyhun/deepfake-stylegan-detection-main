@@ -29,6 +29,7 @@ services:
     volumes:
       - ./src:/app/src
       - ./client_machine:/app/client_machine
+      - ./dataset:/app/data
     environment:
       - SECRET_KEY=docker_secret_key
     networks:
@@ -45,6 +46,7 @@ services:
     volumes:
       - ./src:/app/src
       - ./client_machine:/app/client_machine
+      - ./dataset:/app/data
     environment:
       - SECRET_KEY=docker_secret_key
     networks:
